@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <title>Audio Analyzer</title>
+</head>
+
+<body>
+    <h2>🎧 Real-Time Audio Analyzer</h2>
+
+    <div class="controls">
+        <button id="startBtn">Start Audio Analyzer</button>
+        <button id="pauseBtn" style="display: none;">Pause</button>
+    </div>
+
+    <canvas id="waveform"></canvas>
+
+    <canvas id="spectrum-full"></canvas>
+    <div class="label">Full Spectrum: 20 Hz – 20,000 Hz</div>
+
+    <canvas id="spectrum-low"></canvas>
+    <div class="label">Low Frequencies: 20 Hz – 1,000 Hz</div>
+
+    <canvas id="spectrum-mid"></canvas>
+    <div class="label">Mid Frequencies: 1,000 Hz – 3,000 Hz</div>
+
+    <canvas id="spectrum-high"></canvas>
+    <div class="label">High Frequencies: 3,000 Hz – 10,000 Hz</div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
