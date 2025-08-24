@@ -40,7 +40,7 @@ async function startAudio() {
 
   analyser.fftSize = 2048;
   analyser.minDecibels = -100;
-  analyser.maxDecibels = -30;
+  analyser.maxDecibels = 0;
   const bufferLength = analyser.frequencyBinCount;
   const timeArray = new Uint8Array(bufferLength);
   const floatDataArray = new Float32Array(bufferLength);
@@ -191,7 +191,7 @@ async function startAudio() {
           return;
         }
 
-        if (peakDb < prevPeakDb && prevPeakDbPositive >= 30) {
+        if (peakDb < prevPeakDb && prevPeakDbPositive >= 80) {
           isPaused = true;
           autoPauseEnabled = false;
           document.getElementById("pauseBtn").innerText = "Resume";
