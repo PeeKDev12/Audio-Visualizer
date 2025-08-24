@@ -1,4 +1,6 @@
 let isPaused = false;
+let autoPauseEnabled = false;
+let gracePeriodEnd = 0; // timestamp to ignore auto-pause after resume
 
 document.getElementById("startBtn").addEventListener("click", () => {
   startAudio().catch((err) =>
@@ -6,11 +8,28 @@ document.getElementById("startBtn").addEventListener("click", () => {
   );
   document.getElementById("startBtn").style.display = "none";
   document.getElementById("pauseBtn").style.display = "inline-block";
+  isPaused = false;
+  autoPauseEnabled = true;
+  gracePeriodEnd = 0;
+  document.getElementById("pauseBtn").innerText = "Pause";
 });
 
 document.getElementById("pauseBtn").addEventListener("click", () => {
   isPaused = !isPaused;
-  document.getElementById("pauseBtn").innerText = isPaused ? "Resume" : "Pause";
+
+  if (isPaused) {
+    // Manual pause disables auto pause & grace period
+    autoPauseEnabled = false;
+    gracePeriodEnd = 0;
+    document.getElementById("pauseBtn").innerText = "Resume";
+  } else {
+    // Resume enables auto pause and sets grace period (2 sec)
+    autoPauseEnabled = true;
+    gracePeriodEnd = Date.now() + 800; // 0.8 seconds grace period
+    prevPeakDb = -Infinity; // reset peak tracking
+    prevPeakDbPositive = 0;
+    document.getElementById("pauseBtn").innerText = "Pause";
+  }
 });
 
 async function startAudio() {
@@ -52,7 +71,7 @@ async function startAudio() {
   });
 
   function drawYAxis(ctx, minDb, maxDb) {
-    const dbRange = maxDb - minDb; // Should be 70 if -100 to -30
+    const dbRange = maxDb - minDb;
     ctx.fillStyle = "#333";
     ctx.font = "10px sans-serif";
     ctx.textAlign = "right";
@@ -62,16 +81,9 @@ async function startAudio() {
 
     const labelSteps = 5;
     for (let i = 0; i <= labelSteps; i++) {
-      // Normalized value: 0–1
       const norm = i / labelSteps;
-
-      // Y-position on canvas (top = loudest, bottom = quietest)
       const y = canvasHeight - norm * canvasHeight;
-
-      // Actual dBFS value at this step
       const dbValue = minDb + norm * dbRange;
-
-      // Convert to positive display dB (e.g., 0–100 dB)
       const displayDb = Math.round(dbValue - minDb);
 
       ctx.fillText(displayDb + " dB", marginLeft - 5, y);
@@ -97,21 +109,19 @@ async function startAudio() {
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     drawYAxis(ctx, minDb, maxDb);
 
-    // Draw X-axis line
     ctx.beginPath();
     ctx.moveTo(marginLeft, canvasHeight - 1);
     ctx.lineTo(canvasWidth, canvasHeight - 1);
     ctx.strokeStyle = "#ccc";
     ctx.stroke();
 
-    // Determine frequency interval based on maxHz
     let freqInterval;
     if (maxHz === 20000) {
-      freqInterval = 1000; // full spectrum
+      freqInterval = 1000;
     } else if (maxHz === 10000) {
-      freqInterval = 1000; // high frequencies
+      freqInterval = 1000;
     } else {
-      freqInterval = 100; // low and mid frequencies
+      freqInterval = 100;
     }
 
     ctx.fillStyle = "#000";
@@ -131,7 +141,6 @@ async function startAudio() {
       ctx.fillText(label, x, canvasHeight - 12);
     }
 
-    // Draw the spectrum line
     ctx.beginPath();
     ctx.strokeStyle = "#007";
     ctx.lineWidth = 1;
@@ -151,11 +160,48 @@ async function startAudio() {
     ctx.stroke();
   }
 
+  let prevPeakDb = -Infinity;
+  let prevPeakDbPositive = 0;
+
   function draw() {
     requestAnimationFrame(draw);
+
     if (isPaused) return;
 
     analyser.getByteTimeDomainData(timeArray);
+    analyser.getFloatFrequencyData(floatDataArray);
+
+    const minDb = analyser.minDecibels;
+    const maxDb = analyser.maxDecibels;
+
+    let peakDb = -Infinity;
+    for (let i = 0; i < floatDataArray.length; i++) {
+      if (floatDataArray[i] > peakDb) peakDb = floatDataArray[i];
+    }
+
+    const peakDbPositive = peakDb - minDb;
+    const now = Date.now();
+
+    if (autoPauseEnabled) {
+      if (now > gracePeriodEnd) {
+        if (peakDb >= maxDb) {
+          isPaused = true;
+          autoPauseEnabled = false;
+          document.getElementById("pauseBtn").innerText = "Resume";
+          return;
+        }
+
+        if (peakDb < prevPeakDb && prevPeakDbPositive >= 30) {
+          isPaused = true;
+          autoPauseEnabled = false;
+          document.getElementById("pauseBtn").innerText = "Resume";
+          return;
+        }
+      }
+    }
+
+    prevPeakDb = peakDb;
+    prevPeakDbPositive = peakDbPositive;
 
     // Draw waveform
     const ctx = ctxs[0];
@@ -172,11 +218,10 @@ async function startAudio() {
     }
     ctx.stroke();
 
-    // Draw frequency spectrums
-    drawSpectrumGraph(ctxs[1], 20, 20000); // Full spectrum
-    drawSpectrumGraph(ctxs[2], 20, 1000); // Low frequencies
-    drawSpectrumGraph(ctxs[3], 1000, 3000); // Mid frequencies
-    drawSpectrumGraph(ctxs[4], 3000, 10000); // High frequencies
+    drawSpectrumGraph(ctxs[1], 20, 20000);
+    drawSpectrumGraph(ctxs[2], 20, 1000);
+    drawSpectrumGraph(ctxs[3], 1000, 3000);
+    drawSpectrumGraph(ctxs[4], 3000, 10000);
   }
 
   draw();
