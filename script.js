@@ -20,9 +20,11 @@ async function startAudio() {
   const analyser = audioCtx.createAnalyser();
 
   analyser.fftSize = 2048;
+  analyser.minDecibels = -100;
+  analyser.maxDecibels = -30;
   const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
   const timeArray = new Uint8Array(bufferLength);
+  const floatDataArray = new Float32Array(bufferLength);
 
   source.connect(analyser);
 
@@ -49,7 +51,8 @@ async function startAudio() {
     return c.getContext("2d");
   });
 
-  function drawYAxis(ctx) {
+  function drawYAxis(ctx, minDb, maxDb) {
+    const dbRange = maxDb - minDb; // Should be 70 if -100 to -30
     ctx.fillStyle = "#333";
     ctx.font = "10px sans-serif";
     ctx.textAlign = "right";
@@ -57,13 +60,93 @@ async function startAudio() {
     ctx.beginPath();
     ctx.strokeStyle = "#ccc";
 
-    const steps = [255, 192, 128, 64, 0];
-    steps.forEach((value) => {
-      const y = canvasHeight - (value / 255) * canvasHeight;
-      ctx.fillText(value.toString(), marginLeft - 5, y);
+    const labelSteps = 5;
+    for (let i = 0; i <= labelSteps; i++) {
+      // Normalized value: 0–1
+      const norm = i / labelSteps;
+
+      // Y-position on canvas (top = loudest, bottom = quietest)
+      const y = canvasHeight - norm * canvasHeight;
+
+      // Actual dBFS value at this step
+      const dbValue = minDb + norm * dbRange;
+
+      // Convert to positive display dB (e.g., 0–100 dB)
+      const displayDb = Math.round(dbValue - minDb);
+
+      ctx.fillText(displayDb + " dB", marginLeft - 5, y);
       ctx.moveTo(marginLeft, y);
       ctx.lineTo(canvasWidth, y);
-    });
+    }
+
+    ctx.stroke();
+  }
+
+  function drawSpectrumGraph(ctx, minHz, maxHz) {
+    const sampleRate = audioCtx.sampleRate;
+    const nyquist = sampleRate / 2;
+    const minIndex = Math.floor((minHz / nyquist) * bufferLength);
+    const maxIndex = Math.floor((maxHz / nyquist) * bufferLength);
+
+    analyser.getFloatFrequencyData(floatDataArray);
+
+    const minDb = analyser.minDecibels;
+    const maxDb = analyser.maxDecibels;
+    const dbRange = maxDb - minDb;
+
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    drawYAxis(ctx, minDb, maxDb);
+
+    // Draw X-axis line
+    ctx.beginPath();
+    ctx.moveTo(marginLeft, canvasHeight - 1);
+    ctx.lineTo(canvasWidth, canvasHeight - 1);
+    ctx.strokeStyle = "#ccc";
+    ctx.stroke();
+
+    // Determine frequency interval based on maxHz
+    let freqInterval;
+    if (maxHz === 20000) {
+      freqInterval = 1000; // full spectrum
+    } else if (maxHz === 10000) {
+      freqInterval = 1000; // high frequencies
+    } else {
+      freqInterval = 100; // low and mid frequencies
+    }
+
+    ctx.fillStyle = "#000";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+
+    for (
+      let hz = Math.ceil(minHz / freqInterval) * freqInterval;
+      hz <= maxHz;
+      hz += freqInterval
+    ) {
+      const x =
+        marginLeft +
+        ((hz - minHz) / (maxHz - minHz)) * (canvasWidth - marginLeft);
+      const label = hz >= 1000 ? hz / 1000 + "k" : hz.toString();
+      ctx.fillText(label, x, canvasHeight - 12);
+    }
+
+    // Draw the spectrum line
+    ctx.beginPath();
+    ctx.strokeStyle = "#007";
+    ctx.lineWidth = 1;
+
+    for (let i = minIndex; i <= maxIndex; i++) {
+      const freq = (i / bufferLength) * nyquist;
+      const x =
+        marginLeft +
+        ((freq - minHz) / (maxHz - minHz)) * (canvasWidth - marginLeft);
+      const db = floatDataArray[i];
+      const y = canvasHeight - ((db - minDb) / dbRange) * canvasHeight;
+
+      if (i === minIndex) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
 
     ctx.stroke();
   }
@@ -73,18 +156,15 @@ async function startAudio() {
     if (isPaused) return;
 
     analyser.getByteTimeDomainData(timeArray);
-    analyser.getByteFrequencyData(dataArray);
 
-    // Waveform (no Y-axis for waveform)
+    // Draw waveform
     const ctx = ctxs[0];
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     ctx.beginPath();
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 2;
-    
-    // Start from the first point
+
     ctx.moveTo(0, canvasHeight - (timeArray[0] / 255) * canvasHeight);
-    
     for (let i = 1; i < timeArray.length; i++) {
       const x = (i * canvasWidth) / timeArray.length;
       const y = canvasHeight - (timeArray[i] / 255) * canvasHeight;
@@ -92,34 +172,11 @@ async function startAudio() {
     }
     ctx.stroke();
 
-    // FFT spectrum drawing
-    function drawSpectrum(ctx, minHz, maxHz) {
-      const minIndex = Math.floor(
-        (minHz / (audioCtx.sampleRate / 2)) * bufferLength
-      );
-      const maxIndex = Math.floor(
-        (maxHz / (audioCtx.sampleRate / 2)) * bufferLength
-      );
-
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      drawYAxis(ctx);
-
-      ctx.beginPath();
-      ctx.strokeStyle = "#000";
-      for (let i = minIndex; i < maxIndex; i++) {
-        const x =
-          marginLeft +
-          ((i - minIndex) * (canvasWidth - marginLeft)) / (maxIndex - minIndex);
-        const y = canvasHeight - (dataArray[i] / 255) * canvasHeight;
-        ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-
-    drawSpectrum(ctxs[1], 20, 20000); // Full spectrum
-    drawSpectrum(ctxs[2], 20, 1000); // Low frequencies
-    drawSpectrum(ctxs[3], 1000, 3000); // Mid frequencies
-    drawSpectrum(ctxs[4], 3000, 10000); // High frequencies
+    // Draw frequency spectrums
+    drawSpectrumGraph(ctxs[1], 20, 20000); // Full spectrum
+    drawSpectrumGraph(ctxs[2], 20, 1000); // Low frequencies
+    drawSpectrumGraph(ctxs[3], 1000, 3000); // Mid frequencies
+    drawSpectrumGraph(ctxs[4], 3000, 10000); // High frequencies
   }
 
   draw();
