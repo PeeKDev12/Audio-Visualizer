@@ -191,7 +191,7 @@ async function startAudio() {
           return;
         }
 
-        if (peakDb < prevPeakDb && prevPeakDbPositive >= 80) {
+        if (peakDb < prevPeakDb && prevPeakDbPositive >= 50) {
           isPaused = true;
           autoPauseEnabled = false;
           document.getElementById("pauseBtn").innerText = "Resume";
